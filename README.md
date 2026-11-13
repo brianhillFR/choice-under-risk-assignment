@@ -33,14 +33,41 @@ is also supported. Do not put the key in source control.
 
 The answer CSV contains `SubjectId` but never name or e-mail. Completion writes the
 response JSON first, merges the row into `answers.csv`, then marks the JSON as synced,
-so a failed final merge can be retried without duplicating a row. Storage is isolated
-behind `JsonCsvRepository`; it can be replaced when the production DB details arrive
-without changing the question or LLM workflow.
+so a failed final merge can be retried without duplicating a row.
 
 ## Deployment
 
-The app is ready for a standard Streamlit deployment. Production deployment should wait
-for the database connection because a hosted app's local filesystem may be ephemeral.
-The production adapter should retain the same JSON-first, completion-only export and
-separate identity-log rules.
+For local development, leave `STORAGE_BACKEND = "local"`. For persistent Streamlit
+deployment, create a scoped Dropbox app with App Folder access and enable
+`files.content.read`, `files.content.write`, and `files.metadata.read`. Generate an
+offline refresh token locally with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\dropbox_oauth.py
+```
+
+In Streamlit **App settings → Secrets**, use root-level TOML values:
+
+```toml
+STORAGE_BACKEND = "dropbox"
+
+DROPBOX_APP_KEY = "..."
+DROPBOX_APP_SECRET = "..."
+DROPBOX_REFRESH_TOKEN = "..."
+DROPBOX_ROOT_PATH = "/choice_under_risk_assignment"
+DROPBOX_CSV_NAME = "answers.csv"
+DROPBOX_SUBJECT_CSV_NAME = "subjects.csv"
+
+LLM_MODE = "openai"
+KEY_OPENAI = "..."
+OPENAI_MODEL = "gpt-4.1-mini"
+OPENAI_MAX_OUTPUT_TOKENS = "800"
+OPENAI_TIMEOUT_SECONDS = "45"
+```
+
+The Dropbox app folder becomes the authoritative store. It contains one private JSON
+per response, a hashed e-mail resume index, the separate `subjects.csv` identity log,
+and the completion-only `answers.csv`. Remote writes use Dropbox revisions: stale tabs
+cannot overwrite newer answers, concurrent CSV merges are retried, and an interrupted
+final merge can be retried without duplicating a subject row. Never commit real secrets.
 

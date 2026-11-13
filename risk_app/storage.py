@@ -408,3 +408,27 @@ class JsonCsvRepository:
 
 # Backwards-compatible import name for any existing local scripts.
 CsvRepository = JsonCsvRepository
+
+
+def setting(name: str, default: str | None = None) -> str | None:
+    """Read a deployment setting from the environment or Streamlit secrets."""
+    if name in os.environ:
+        return os.environ[name]
+    try:
+        import streamlit as st
+
+        return st.secrets.get(name, default)
+    except (ImportError, FileNotFoundError):
+        return default
+
+
+def configured_repository():
+    """Select local development storage or persistent Dropbox storage."""
+    backend = str(setting("STORAGE_BACKEND", "local")).strip().casefold()
+    if backend in {"local", "json", "json-csv"}:
+        return JsonCsvRepository(str(setting("RISK_APP_DATA_DIR", "data")))
+    if backend == "dropbox":
+        from risk_app.dropbox_storage import configured_dropbox_repository
+
+        return configured_dropbox_repository()
+    raise StorageError("STORAGE_BACKEND must be either 'local' or 'dropbox'.")

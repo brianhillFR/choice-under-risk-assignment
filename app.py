@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import html
-import os
 
 import streamlit as st
 
@@ -20,7 +19,7 @@ from risk_app.content import (
     format_full_student_answer,
 )
 from risk_app.llm import SummaryClient
-from risk_app.storage import JsonCsvRepository, Participant, StorageError
+from risk_app.storage import Participant, StorageError, configured_repository
 from risk_app.styles import QUALTRICS_CSS
 from risk_app.workflow import normalize_email, valid_email
 
@@ -30,8 +29,8 @@ st.markdown(QUALTRICS_CSS, unsafe_allow_html=True)
 
 
 @st.cache_resource
-def repository() -> JsonCsvRepository:
-    return JsonCsvRepository(os.getenv("RISK_APP_DATA_DIR", "data"))
+def repository():
+    return configured_repository()
 
 
 @st.cache_resource
@@ -90,7 +89,11 @@ def render_email() -> None:
         st.error("Please enter a valid e-mail address.")
         return
     normalized = normalize_email(email)
-    participant = repository().find_participant_by_email(normalized)
+    try:
+        participant = repository().find_participant_by_email(normalized)
+    except StorageError as error:
+        st.error(str(error))
+        return
     st.session_state.email = normalized
     if participant:
         set_participant(participant)
@@ -116,7 +119,7 @@ def render_details() -> None:
             email=st.session_state.email,
             name=name,
         )
-    except ValueError as error:
+    except (ValueError, StorageError) as error:
         st.error(str(error))
         return
     set_participant(participant)
@@ -226,18 +229,23 @@ def render_review() -> None:
         return
     next_index = progress.item_index + 1
     completed = next_index >= len(items)
-    repository().save_confirmed_response(
-        subject_id=st.session_state.subject_id,
-        case_number=item.case_number,
-        component_answer=st.session_state.pending_component_answer,
-        explanation_answer=st.session_state.pending_explanation_answer,
-        llm_summary=st.session_state.pending_summary,
-        final_summary=final_summary,
-        llm_provider=st.session_state.pending_provider,
-        llm_model=st.session_state.pending_model,
-        next_item_index=next_index,
-        completed=completed,
-    )
+    try:
+        repository().save_confirmed_response(
+            subject_id=st.session_state.subject_id,
+            case_number=item.case_number,
+            component_answer=st.session_state.pending_component_answer,
+            explanation_answer=st.session_state.pending_explanation_answer,
+            llm_summary=st.session_state.pending_summary,
+            final_summary=final_summary,
+            llm_provider=st.session_state.pending_provider,
+            llm_model=st.session_state.pending_model,
+            next_item_index=next_index,
+            completed=completed,
+        )
+    except StorageError as error:
+        st.error(str(error))
+        st.info("Your entry remains on this page so you can retry the save.")
+        return
     for key in (
         "pending_component_answer",
         "pending_explanation_answer",
@@ -268,19 +276,25 @@ def render_complete() -> None:
 def main() -> None:
     initialize_state()
     phase = st.session_state.phase
-    if phase == "email":
-        render_email()
-    elif phase == "details":
-        render_details()
-    elif phase == "question":
-        render_question()
-    elif phase == "review":
-        render_review()
-    elif phase == "complete":
-        render_complete()
-    else:
-        st.session_state.phase = "email"
-        st.rerun()
+    try:
+        if phase == "email":
+            render_email()
+        elif phase == "details":
+            render_details()
+        elif phase == "question":
+            render_question()
+        elif phase == "review":
+            render_review()
+        elif phase == "complete":
+            render_complete()
+        else:
+            st.session_state.phase = "email"
+            st.rerun()
+    except StorageError as error:
+        st.error(str(error))
+        st.info("Dropbox may be temporarily unavailable. Your last confirmed step remains saved.")
+        if st.button("Retry connection"):
+            st.rerun()
 
 
 if __name__ == "__main__":
