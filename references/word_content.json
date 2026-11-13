@@ -1,0 +1,135 @@
+{
+  "paragraphs": [
+    {
+      "index": 0,
+      "style": "Normal",
+      "text": "Choice under Risk Assignment"
+    },
+    {
+      "index": 3,
+      "style": "Normal",
+      "text": "Task:"
+    },
+    {
+      "index": 5,
+      "style": "Normal",
+      "text": "You will be randomly assigned two of the following cases. You will be asked two questions about each case. You may be asked to present the central points in the next lesson. "
+    },
+    {
+      "index": 7,
+      "style": "Normal",
+      "text": "Throughout this assignment, suppose that decision makers can be represented by Prospect Theory with a single (reference-dependent) utility function and a single probability weighting function. Each of the cases can be explained by a specific property or properties of one or both of the Prospect Theory components. For the first case that you have been allocated, you will be asked:"
+    },
+    {
+      "index": 9,
+      "style": "List Paragraph",
+      "text": "Which of the Prospect Theory components – utility function, probability weighting function or both – plays a central role in explaining it? (If you think that no component specific to Prospect Theory is required to explain the behaviour, i.e. it can be accommodated by Expected Utility, then explain why in part ii.)"
+    },
+    {
+      "index": 10,
+      "style": "List Paragraph",
+      "text": "Explain fully how the component or components identified in your previous answer can accommodate the behavior, identifying the specific property or properties of this component or components which are relevant."
+    },
+    {
+      "index": 12,
+      "style": "Normal",
+      "text": "For the second case, you will be given a possible answer to these two questions concerning that case. The answer was provided by asking the questions to ChatGPT. You will be asked to state what you think of the answer, and to correct or add to it appropriately."
+    },
+    {
+      "index": 14,
+      "style": "Normal",
+      "text": "The answer to each (non-multiple choice) question should ideally not more than around 250-300 words."
+    },
+    {
+      "index": 16,
+      "style": "Normal",
+      "text": "Grading:"
+    },
+    {
+      "index": 18,
+      "style": "Normal",
+      "text": "This task will be worth 6 points: 3 points for each case. For each case, one point will be assigned for question i., and two for ii. To obtain full marks, thorough (yet concise) explanations are required. Grading will take account of any difference in difficulty among the tasks."
+    },
+    {
+      "index": 20,
+      "style": "Normal",
+      "text": "This assignment is worth 20% of the course grade."
+    },
+    {
+      "index": 21,
+      "style": "Normal",
+      "text": "Advice and submission:"
+    },
+    {
+      "index": 22,
+      "style": "Normal",
+      "text": "Answers must be submitted in this Qualtrics survey. The survey will specify which cases you have been assigned. You are only allowed one submission: please do not try to submit several sets of answers. Note that once you have validated a page of answers (by clicking on the button on the bottom of the screen), you cannot go back. "
+    },
+    {
+      "index": 23,
+      "style": "Normal",
+      "text": "Whilst you can take the assignment on a mobile device or a computer, I advise a computer for this assignment."
+    },
+    {
+      "index": 24,
+      "style": "Normal",
+      "text": "Cases"
+    },
+    {
+      "index": 26,
+      "style": "List Paragraph",
+      "text": "People tend to exhibit a preference for receiving five separate payments of €100 each to receiving a single payment of €500, yet they exhibit a preference for paying a single bill of €500 to paying five separate bills of €100 to each."
+    },
+    {
+      "index": 28,
+      "style": "List Paragraph",
+      "text": "Many subjects exhibit, on the one hand, a preference for a sure €500 over a bet yielding €1000 with probability 50% and nothing otherwise, whilst, on the other hand, buying a lottery ticket."
+    },
+    {
+      "index": 30,
+      "style": "List Paragraph",
+      "text": "Many subjects exhibit, on the one hand, a preference for a bet yielding a loss of €1000 with probability 50% and nothing otherwise over a sure loss of €500, whilst, on the other hand, buying car insurance."
+    },
+    {
+      "index": 32,
+      "style": "List Paragraph",
+      "text": "A proven empirical finding is that investors tend to sell winning stocks (\"realise gains\") too soon and sell losing stocks (\"realise losses\") too late. This tendency persists even if one controls for subsequent stock performance and if there is a tax advantage from holding winning stocks for longer."
+    },
+    {
+      "index": 34,
+      "style": "List Paragraph",
+      "text": "The following is a common empirical pattern:"
+    },
+    {
+      "index": 35,
+      "style": "List Paragraph",
+      "text": "The certainty equivalent of a bet yielding €100 with probability 5% is around €14"
+    },
+    {
+      "index": 36,
+      "style": "List Paragraph",
+      "text": "The certainty equivalent of a bet yielding €100 with probability 50% is around €36"
+    },
+    {
+      "index": 37,
+      "style": "List Paragraph",
+      "text": "The certainty equivalent of a bet yielding €100 with probability 95% is around €78"
+    },
+    {
+      "index": 38,
+      "style": "List Paragraph",
+      "text": "The certainty equivalent of a bet yielding -€100 (i.e. a loss of €100) with probability 5% is around -€8"
+    },
+    {
+      "index": 39,
+      "style": "List Paragraph",
+      "text": "The certainty equivalent of a bet yielding -€100 (i.e. a loss of €100) with probability 50% is around -€42"
+    },
+    {
+      "index": 40,
+      "style": "List Paragraph",
+      "text": "The certainty equivalent of a bet yielding -€100 (i.e. a loss of €100) with probability 95% is around -€84."
+    }
+  ],
+  "tables": []
+}
