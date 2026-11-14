@@ -1,42 +1,30 @@
-"""Create the offline Dropbox refresh token used by Streamlit deployment.
+"""Run locally once to authorize the Dropbox app and obtain a refresh token."""
 
-Run locally after creating a scoped Dropbox app with App Folder access:
-    python tools/dropbox_oauth.py
-
-The script prints credentials only to the terminal and never writes them.
-"""
-
-from __future__ import annotations
-
-import getpass
+from getpass import getpass
 
 from dropbox import DropboxOAuth2FlowNoRedirect
 
 
-def main() -> None:
+def main():
     app_key = input("Dropbox app key: ").strip()
-    app_secret = getpass.getpass("Dropbox app secret: ").strip()
-    if not app_key or not app_secret:
-        raise SystemExit("Both the app key and app secret are required.")
-
+    app_secret = getpass("Dropbox app secret (hidden): ").strip()
     flow = DropboxOAuth2FlowNoRedirect(
         app_key,
         app_secret,
         token_access_type="offline",
+        scope=[
+            "files.content.read",
+            "files.content.write",
+            "files.metadata.read",
+        ],
     )
-    print("\n1. Open this URL in your browser:\n")
-    print(flow.start())
-    print("\n2. Approve access, copy the authorization code, and paste it below.\n")
-    authorization_code = getpass.getpass("Authorization code: ").strip()
-    result = flow.finish(authorization_code)
+    print("\nOpen this URL in your browser and authorize the app:\n" + flow.start())
+    code = input("\nPaste the authorization code: ").strip()
+    result = flow.finish(code)
     if not result.refresh_token:
-        raise SystemExit("Dropbox did not return a refresh token.")
-
-    print("\nAdd these values to Streamlit App settings → Secrets:\n")
-    print(f'DROPBOX_APP_KEY = "{app_key}"')
-    print(f'DROPBOX_APP_SECRET = "{app_secret}"')
-    print(f'DROPBOX_REFRESH_TOKEN = "{result.refresh_token}"')
-    print("\nDo not save these values in GitHub.")
+        raise RuntimeError("Dropbox did not return a refresh token.")
+    print("\nCopy this into Streamlit Secrets; do not commit it to Git:\n")
+    print('DROPBOX_REFRESH_TOKEN = "' + result.refresh_token + '"')
 
 
 if __name__ == "__main__":

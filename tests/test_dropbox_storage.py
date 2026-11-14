@@ -4,8 +4,10 @@ import csv
 import io
 import json
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from dropbox.exceptions import ApiError
 from dropbox.files import (
@@ -20,6 +22,7 @@ from dropbox.files import (
 
 from risk_app.dropbox_storage import DropboxRepository, StaleResponse
 from risk_app.storage import StorageError
+from tools import dropbox_oauth
 
 
 def conflict() -> ApiError:
@@ -166,6 +169,35 @@ class DropboxRepositoryTests(unittest.TestCase):
             DropboxRepository(self.client, root="/")
         with self.assertRaises(StorageError):
             DropboxRepository(self.client, csv_name="../answers.csv")
+
+
+class DropboxOAuthTests(unittest.TestCase):
+    def test_working_hill_flow_requests_scopes_and_accepts_pasted_code(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.object(dropbox_oauth, "input", side_effect=["app-key", "auth-code"]) as entered,
+            patch.object(dropbox_oauth, "getpass", return_value="app-secret"),
+            patch.object(dropbox_oauth, "DropboxOAuth2FlowNoRedirect") as flow_class,
+            redirect_stdout(output),
+        ):
+            flow = flow_class.return_value
+            flow.start.return_value = "https://dropbox.example/authorize"
+            flow.finish.return_value = SimpleNamespace(refresh_token="test-refresh-token")
+            dropbox_oauth.main()
+
+        flow_class.assert_called_once_with(
+            "app-key",
+            "app-secret",
+            token_access_type="offline",
+            scope=[
+                "files.content.read",
+                "files.content.write",
+                "files.metadata.read",
+            ],
+        )
+        self.assertEqual(entered.call_args_list[1].args[0], "\nPaste the authorization code: ")
+        flow.finish.assert_called_once_with("auth-code")
+        self.assertIn('DROPBOX_REFRESH_TOKEN = "test-refresh-token"', output.getvalue())
 
 
 if __name__ == "__main__":
