@@ -4,7 +4,16 @@ import json
 import unittest
 from pathlib import Path
 
-from risk_app.content import CASES, COMPONENT_OPTIONS, COMPONENT_QUESTION, EXPLANATION_QUESTION
+from risk_app.content import (
+    ASSESSMENT_OPTIONS,
+    ASSESSMENT_QUESTION,
+    CASES,
+    COMPONENT_OPTIONS,
+    COMPONENT_QUESTION,
+    CORRECTION_QUESTION,
+    EXPLANATION_QUESTION,
+    PROVIDED_ANSWERS,
+)
 
 
 ROOT = Path(__file__).parents[1]
@@ -30,6 +39,26 @@ class SourceFidelityTests(unittest.TestCase):
         choice_order = [str(value) for value in questions["QID2"]["choice_order"]]
         source_options = tuple(questions["QID2"]["choices"][key] for key in choice_order)
         self.assertEqual(COMPONENT_OPTIONS, source_options)
+
+    def test_review_wording_matches_qsf_and_reference_assignment(self) -> None:
+        self.assertEqual(
+            ASSESSMENT_QUESTION,
+            "How well do you think that this response answers the question concerning the case?",
+        )
+        self.assertEqual(
+            ASSESSMENT_OPTIONS,
+            (
+                "Totally right: it would get full marks",
+                "There is something along the right lines in the response, but requires some addition or modification",
+                "Wrong",
+            ),
+        )
+        self.assertEqual(
+            CORRECTION_QUESTION,
+            "Explain your answer, specifying, if relevant, what needs to be added, corrected or changed to obtain a perfect response.",
+        )
+        self.assertEqual(sorted(PROVIDED_ANSWERS), [1, 2, 3, 4])
+        self.assertTrue(all(answer.startswith("i. ") for answer in PROVIDED_ANSWERS.values()))
 
 
 if __name__ == "__main__":

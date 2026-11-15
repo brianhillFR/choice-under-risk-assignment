@@ -6,17 +6,23 @@ import streamlit as st
 
 from risk_app.content import (
     APP_TITLE,
+    ASSESSMENT_OPTIONS,
+    ASSESSMENT_QUESTION,
     ASSIGNMENT_CONTEXT,
     CASES,
     COMPONENT_OPTIONS,
     COMPONENT_QUESTION,
+    CORRECTION_QUESTION,
     EMAIL_QUESTION,
     EXPLANATION_QUESTION,
     FULL_CASE_QUESTION,
     NAME_QUESTION,
+    PROVIDED_ANSWERS,
     SUMMARY_REVIEW_TEXT,
     build_case_items,
     format_full_student_answer,
+    format_full_review_answer,
+    full_review_question,
 )
 from risk_app.llm import SummaryClient
 from risk_app.storage import Participant, StorageError, configured_repository
@@ -44,11 +50,6 @@ def initialize_state() -> None:
         "email": "",
         "subject_id": "",
         "participant_name": "",
-        "pending_component_answer": "",
-        "pending_explanation_answer": "",
-        "pending_summary": "",
-        "pending_provider": "",
-        "pending_model": "",
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -74,13 +75,22 @@ def set_participant(participant: Participant) -> None:
     st.session_state.email = participant.email
 
 
+def resume_phase() -> str:
+    progress = repository().get_progress(st.session_state.subject_id)
+    if progress.completed:
+        return "complete"
+    if progress.stage == "summary_review":
+        return "review"
+    return "question"
+
+
 def render_email() -> None:
     shell("Enter your e-mail address to begin or resume")
     with st.form("email_form"):
         email = st.text_input(EMAIL_QUESTION, value=st.session_state.email)
         submitted = st.form_submit_button("Next")
     st.markdown(
-        '<div class="privacy-note">Returning participants are identified by e-mail and resume from their last confirmed answer.</div>',
+        '<div class="privacy-note">Returning participants are identified by e-mail and resume from their last saved step.</div>',
         unsafe_allow_html=True,
     )
     if not submitted:
@@ -97,7 +107,7 @@ def render_email() -> None:
     st.session_state.email = normalized
     if participant:
         set_participant(participant)
-        st.session_state.phase = "question"
+        st.session_state.phase = resume_phase()
     else:
         st.session_state.phase = "details"
     st.rerun()
@@ -112,7 +122,7 @@ def render_details() -> None:
     if not submitted:
         return
     if not name.strip():
-        st.error("Please enter your surname.")
+        st.error("Please enter your full name.")
         return
     try:
         participant = repository().create_participant(
@@ -123,7 +133,7 @@ def render_details() -> None:
         st.error(str(error))
         return
     set_participant(participant)
-    st.session_state.phase = "question"
+    st.session_state.phase = resume_phase()
     st.rerun()
 
 
@@ -141,19 +151,37 @@ def render_case(case_number: int) -> None:
     )
 
 
-def render_question() -> None:
-    progress, items = current_context()
-    if progress.completed or progress.item_index >= len(items):
-        st.session_state.phase = "complete"
-        st.rerun()
-    item = items[progress.item_index]
-    ordinal = progress.assigned_cases.index(item.case_number) + 1
-    shell(f"Case {ordinal} of 2")
-    if progress.item_index == 0:
+def render_provided_answer(case_number: int) -> None:
+    safe_answer = html.escape(PROVIDED_ANSWERS[case_number]).replace("\n", "<br>")
+    st.markdown(
+        '<div class="provided-answer"><div class="provided-answer-label">'
+        f'Provided response</div>{safe_answer}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def submit_for_summary(item, **answer_fields: str) -> bool:
+    try:
+        repository().save_pending_response(
+            subject_id=st.session_state.subject_id,
+            case_number=item.case_number,
+            question_type=item.question_type,
+            **answer_fields,
+        )
+    except StorageError as error:
+        st.error(str(error))
+        return False
+    st.session_state.phase = "review"
+    st.rerun()
+    return True
+
+
+def render_original_question(item) -> None:
+    if item.question_number == 1:
         st.markdown(ASSIGNMENT_CONTEXT)
     st.markdown(f"**First, consider case {item.case_number}.**")
     render_case(item.case_number)
-    with st.form(f"question_form_{progress.item_index}"):
+    with st.form(f"question_form_{item.question_number}"):
         component_answer = st.radio(COMPONENT_QUESTION, COMPONENT_OPTIONS, index=None)
         explanation_answer = st.text_area(EXPLANATION_QUESTION, height=220, max_chars=4000)
         st.caption("The explanation should ideally be no more than around 250–300 words.")
@@ -166,27 +194,102 @@ def render_question() -> None:
     if not explanation_answer.strip():
         st.error("Please answer question ii before continuing.")
         return
+    submit_for_summary(
+        item,
+        component_answer=component_answer,
+        explanation_answer=explanation_answer,
+    )
+
+
+def render_correction_question(item) -> None:
+    st.markdown(f"**Now consider case {item.case_number}. The questions are as before:**")
+    render_case(item.case_number)
+    st.markdown(FULL_CASE_QUESTION)
+    st.markdown(
+        "The following response to the questions has been provided. You will be "
+        "asked some questions about this response."
+    )
+    render_provided_answer(item.case_number)
+    with st.form(f"question_form_{item.question_number}"):
+        assessment_answer = st.radio(
+            ASSESSMENT_QUESTION,
+            ASSESSMENT_OPTIONS,
+            index=None,
+        )
+        correction_answer = st.text_area(
+            CORRECTION_QUESTION,
+            height=220,
+            max_chars=4000,
+        )
+        st.caption("The explanation should ideally be no more than around 250–300 words.")
+        submitted = st.form_submit_button("Review answers")
+    if not submitted:
+        return
+    if not assessment_answer:
+        st.error("Please assess the provided response before continuing.")
+        return
+    if not correction_answer.strip():
+        st.error("Please explain your assessment before continuing.")
+        return
+    submit_for_summary(
+        item,
+        provided_answer=PROVIDED_ANSWERS[item.case_number],
+        assessment_answer=assessment_answer,
+        correction_answer=correction_answer,
+    )
+
+
+def render_question() -> None:
+    progress, items = current_context()
+    if progress.completed or progress.item_index >= len(items):
+        st.session_state.phase = "complete"
+        st.rerun()
+    item = items[progress.item_index]
+    shell(f"Question {item.question_number} of 2")
+    if item.question_type == "original":
+        render_original_question(item)
+    else:
+        render_correction_question(item)
+
+
+def ensure_saved_summary(item, pending: dict[str, object]) -> dict[str, object] | None:
+    if pending.get("llm_summary"):
+        return pending
+    if item.question_type == "original":
+        question_text = FULL_CASE_QUESTION
+        student_answer = format_full_student_answer(
+            str(pending.get("component_answer", "")),
+            str(pending.get("explanation_answer", "")),
+        )
+    else:
+        question_text = full_review_question(item.case_number)
+        student_answer = format_full_review_answer(
+            str(pending.get("assessment_answer", "")),
+            str(pending.get("correction_answer", "")),
+        )
     with st.spinner("Preparing a concise summary of your explanation…"):
         try:
-            full_student_answer = format_full_student_answer(
-                component_answer,
-                explanation_answer,
-            )
             result = summary_client().summarize(
                 case_text=CASES[item.case_number],
-                question_text=FULL_CASE_QUESTION,
-                student_answer=full_student_answer,
+                question_text=question_text,
+                student_answer=student_answer,
+            )
+            repository().save_generated_summary(
+                subject_id=st.session_state.subject_id,
+                case_number=item.case_number,
+                llm_summary=result.text,
+                llm_provider=result.provider,
+                llm_model=result.model,
             )
         except Exception as error:
-            st.error(f"The summary could not be prepared. Please try again. Technical detail: {error}")
-            return
-    st.session_state.pending_component_answer = component_answer
-    st.session_state.pending_explanation_answer = explanation_answer.strip()
-    st.session_state.pending_summary = result.text
-    st.session_state.pending_provider = result.provider
-    st.session_state.pending_model = result.model
-    st.session_state.phase = "review"
-    st.rerun()
+            st.error(
+                "Your answer is saved, but the summary could not be prepared. "
+                f"Please retry. Technical detail: {error}"
+            )
+            if st.button("Retry summary"):
+                st.rerun()
+            return None
+    return repository().get_progress(st.session_state.subject_id).pending_answer
 
 
 def render_review() -> None:
@@ -195,12 +298,24 @@ def render_review() -> None:
         st.session_state.phase = "complete"
         st.rerun()
     item = items[progress.item_index]
-    shell(f"Review · Case {item.case_number}")
+    if not isinstance(progress.pending_answer, dict):
+        st.session_state.phase = "question"
+        st.rerun()
+    pending = ensure_saved_summary(item, progress.pending_answer)
+    if pending is None:
+        return
+    shell(f"Question {item.question_number} of 2 · Summary review")
     render_case(item.case_number)
-    st.markdown(f"**i. Selected component**\n\n{st.session_state.pending_component_answer}")
-    st.markdown(f"**ii. Your explanation**\n\n{st.session_state.pending_explanation_answer}")
+    if item.question_type == "original":
+        st.markdown(f"**i. Selected component**\n\n{pending['component_answer']}")
+        st.markdown(f"**ii. Your explanation**\n\n{pending['explanation_answer']}")
+    else:
+        render_provided_answer(item.case_number)
+        st.markdown(f"**Your assessment**\n\n{pending['assessment_answer']}")
+        st.markdown(f"**Your explanation and correction**\n\n{pending['correction_answer']}")
     st.markdown(SUMMARY_REVIEW_TEXT)
-    safe_summary = html.escape(st.session_state.pending_summary).replace("\n", "<br>")
+    summary = str(pending["llm_summary"])
+    safe_summary = html.escape(summary).replace("\n", "<br>")
     st.markdown(
         f'<div class="summary-panel">{safe_summary}</div>',
         unsafe_allow_html=True,
@@ -214,47 +329,29 @@ def render_review() -> None:
     if decision == "Modify":
         edited = st.text_area(
             "Edit the bullet points",
-            value=st.session_state.pending_summary,
+            value=summary,
             height=180,
             key=f"review_edit_{progress.item_index}",
         )
     else:
-        edited = st.session_state.pending_summary
+        edited = summary
     submitted = st.button("Confirm and continue", key=f"review_submit_{progress.item_index}")
     if not submitted:
         return
-    final_summary = edited.strip() if decision == "Modify" else st.session_state.pending_summary.strip()
+    final_summary = edited.strip() if decision == "Modify" else summary.strip()
     if not final_summary:
         st.error("The confirmed summary cannot be empty.")
         return
-    next_index = progress.item_index + 1
-    completed = next_index >= len(items)
     try:
-        repository().save_confirmed_response(
+        repository().confirm_pending_response(
             subject_id=st.session_state.subject_id,
-            case_number=item.case_number,
-            component_answer=st.session_state.pending_component_answer,
-            explanation_answer=st.session_state.pending_explanation_answer,
-            llm_summary=st.session_state.pending_summary,
             final_summary=final_summary,
-            llm_provider=st.session_state.pending_provider,
-            llm_model=st.session_state.pending_model,
-            next_item_index=next_index,
-            completed=completed,
         )
     except StorageError as error:
         st.error(str(error))
         st.info("Your entry remains on this page so you can retry the save.")
         return
-    for key in (
-        "pending_component_answer",
-        "pending_explanation_answer",
-        "pending_summary",
-        "pending_provider",
-        "pending_model",
-    ):
-        st.session_state[key] = ""
-    st.session_state.phase = "complete" if completed else "question"
+    st.session_state.phase = resume_phase()
     st.rerun()
 
 
@@ -292,7 +389,7 @@ def main() -> None:
             st.rerun()
     except StorageError as error:
         st.error(str(error))
-        st.info("Dropbox may be temporarily unavailable. Your last confirmed step remains saved.")
+        st.info("Dropbox may be temporarily unavailable. Your last saved step remains available.")
         if st.button("Retry connection"):
             st.rerun()
 

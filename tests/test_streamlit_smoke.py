@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import csv
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,7 +43,7 @@ class StreamlitSmokeTest(unittest.TestCase):
                 app.run(timeout=20)
 
                 labels = [item.label for item in app.text_input]
-                app.text_input[labels.index("Please enter your surname")].set_value("Student")
+                app.text_input[labels.index("Please enter your full name")].set_value("New Student")
                 app.button[0].click()
                 app.run(timeout=20)
 
@@ -56,19 +57,57 @@ class StreamlitSmokeTest(unittest.TestCase):
                 app.run(timeout=20)
 
                 self.assertIn("Confirm", app.radio[0].options)
+                response_path = next((Path(directory) / "responses").glob("*.json"))
+                pending_response = response_path.read_text(encoding="utf-8")
+                self.assertIn("Both components help explain", pending_response)
+                self.assertIn('"stage": "summary_review"', pending_response)
+                self.assertIn('"item_index": 0', pending_response)
+                self.assertFalse((Path(directory) / "answers.csv").exists())
+
+                # A fresh browser session resumes the saved pre-confirmation answer.
+                resumed = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"))
+                resumed.run(timeout=20)
+                resumed.text_input[0].set_value("new.student@hec.edu")
+                resumed.button[0].click()
+                resumed.run(timeout=20)
+                rendered = "\n".join(item.value for item in resumed.markdown)
+                self.assertIn("Both components help explain", rendered)
+                self.assertIn("Question 1 of 2", rendered)
+
                 app.button[0].click()
                 app.run(timeout=20)
 
                 self.assertEqual(app.radio[0].options, [
-                    "Utility function", "Probability weighting function", "Both", "Neither"
+                    "Totally right: it would get full marks",
+                    "There is something along the right lines in the response, but requires some addition or modification",
+                    "Wrong",
                 ])
-                self.assertIn("ii. Explain fully", app.text_area[0].label)
+                self.assertIn("what needs to be added, corrected or changed", app.text_area[0].label)
+                app.radio[0].set_value(
+                    "There is something along the right lines in the response, but requires some addition or modification"
+                )
+                app.text_area[0].set_value(
+                    "The response needs a more precise account of the relevant probability weighting."
+                )
+                app.button[0].click()
+                app.run(timeout=20)
+
+                self.assertIn("Confirm", app.radio[0].options)
+                app.button[0].click()
+                app.run(timeout=20)
+                self.assertIn("Thank you. Your answers have been saved.", [item.value for item in app.success])
+
+                with (Path(directory) / "answers.csv").open(encoding="utf-8-sig") as handle:
+                    rows = list(csv.DictReader(handle))
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["question_1_question_type"], "original")
+                self.assertEqual(rows[0]["question_2_question_type"], "review")
+                self.assertIn("more precise", rows[0]["question_2_correction_answer"])
                 response_paths = list((Path(directory) / "responses").glob("*.json"))
                 self.assertEqual(len(response_paths), 1)
                 response = response_paths[0].read_text(encoding="utf-8")
-                self.assertIn('"item_index": 1', response)
+                self.assertIn('"item_index": 2', response)
                 self.assertNotIn("new.student@hec.edu", response)
-                self.assertFalse((Path(directory) / "answers.csv").exists())
             finally:
                 if previous_data is None:
                     os.environ.pop("RISK_APP_DATA_DIR", None)
@@ -93,7 +132,7 @@ class StreamlitSmokeTest(unittest.TestCase):
                 app.button[0].click()
                 app.run(timeout=20)
                 labels = [item.label for item in app.text_input]
-                app.text_input[labels.index("Please enter your surname")].set_value("Modifier")
+                app.text_input[labels.index("Please enter your full name")].set_value("Summary Modifier")
                 app.button[0].click()
                 app.run(timeout=20)
                 app.radio[0].set_value("Neither")

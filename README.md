@@ -3,10 +3,11 @@
 Streamlit implementation of the active Qualtrics assignment flow. Each participant:
 
 1. enters an e-mail address to begin or resume;
-2. enters a surname on first use and receives a random, unique eight-digit subject ID;
+2. enters a full name on first use and receives a random, unique eight-digit subject ID;
 3. receives two reproducibly assigned cases out of four;
-4. answers the component and explanation questions together on one page for each case;
-5. reviews and confirms or edits an LLM-generated bullet summary of the explanation.
+4. answers the component and explanation questions together for Question 1;
+5. assesses and corrects the supplied Qualtrics ChatGPT response for Question 2;
+6. reviews and confirms or edits an LLM-generated bullet summary after each question.
 
 There is no grading or feedback in the LLM prompt. The model is instructed only to
 summarize arguments already present in the participant's answer.
@@ -26,7 +27,7 @@ is also supported. Do not put the key in source control.
 
 ## Local data files
 
-- `data/responses/<random-key>.json`: the authoritative private response record, updated after each confirmed case.
+- `data/responses/<random-key>.json`: the authoritative private response record, updated before the LLM call, after the LLM result, and after confirmation.
 - `data/answers.csv`: one de-identified row per completed subject; it is created only after both cases are complete.
 - `data/subjects.csv`: the separate `SubjectId`, name and e-mail identity log.
 - `data/_email_index/<email-hash>.json`: the private resume lookup, without a plain-text e-mail address.

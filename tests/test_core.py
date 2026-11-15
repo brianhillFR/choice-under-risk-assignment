@@ -7,13 +7,19 @@ import unittest
 from pathlib import Path
 
 from risk_app.content import (
+    ASSESSMENT_OPTIONS,
+    ASSESSMENT_QUESTION,
     CASES,
     COMPONENT_OPTIONS,
     COMPONENT_QUESTION,
+    CORRECTION_QUESTION,
     EXPLANATION_QUESTION,
     FULL_CASE_QUESTION,
+    PROVIDED_ANSWERS,
     build_case_items,
+    format_full_review_answer,
     format_full_student_answer,
+    full_review_question,
 )
 from risk_app.llm import SummaryClient, build_prompt
 from risk_app.storage import JsonCsvRepository, valid_subject_id
@@ -31,6 +37,8 @@ class WorkflowTests(unittest.TestCase):
     def test_case_sequence(self) -> None:
         items = build_case_items([2, 4])
         self.assertEqual([item.case_number for item in items], [2, 4])
+        self.assertEqual([item.question_number for item in items], [1, 2])
+        self.assertEqual([item.question_type for item in items], ["original", "review"])
         self.assertEqual(COMPONENT_OPTIONS, (
             "Utility function", "Probability weighting function", "Both", "Neither"
         ))
@@ -74,6 +82,22 @@ class SummaryTests(unittest.TestCase):
             prompt,
         )
 
+    def test_review_prompt_contains_provided_response_and_full_student_answer(self) -> None:
+        student_answer = format_full_review_answer(
+            ASSESSMENT_OPTIONS[1],
+            "The response should replace its account of the 50% probability.",
+        )
+        prompt = build_prompt(
+            case_text=CASES[2],
+            question_text=full_review_question(2),
+            student_answer=student_answer,
+        )
+        self.assertIn(ASSESSMENT_QUESTION, prompt)
+        self.assertIn(CORRECTION_QUESTION, prompt)
+        self.assertIn(PROVIDED_ANSWERS[2], prompt)
+        self.assertIn(f"Assessment: {ASSESSMENT_OPTIONS[1]}", prompt)
+        self.assertIn("Explanation and correction: The response should replace", prompt)
+
 
 class StorageTests(unittest.TestCase):
     def test_json_is_authoritative_and_csv_is_created_only_at_completion(self) -> None:
@@ -106,17 +130,39 @@ class StorageTests(unittest.TestCase):
 
             first_case, second_case = state["assignment"]["assigned_cases"]
 
-            repo.save_confirmed_response(
+            repo.save_pending_response(
                 subject_id=participant.subject_id,
                 case_number=first_case,
+                question_type="original",
                 component_answer="Both",
                 explanation_answer="Both components matter for this case.",
+            )
+            restarted = JsonCsvRepository(directory)
+            pending = restarted.get_progress(participant.subject_id)
+            self.assertEqual(pending.stage, "summary_review")
+            self.assertEqual(pending.item_index, 0)
+            self.assertEqual(pending.pending_answer["component_answer"], "Both")
+            self.assertEqual(
+                pending.pending_answer["explanation_answer"],
+                "Both components matter for this case.",
+            )
+            self.assertFalse((Path(directory) / "answers.csv").exists())
+
+            restarted.save_generated_summary(
+                subject_id=participant.subject_id,
+                case_number=first_case,
                 llm_summary="- Both components matter for this case.",
-                final_summary="- Both components matter.",
                 llm_provider="demo",
                 llm_model="demo",
-                next_item_index=1,
-                completed=False,
+            )
+            restarted_again = JsonCsvRepository(directory)
+            self.assertEqual(
+                restarted_again.get_progress(participant.subject_id).pending_answer["llm_summary"],
+                "- Both components matter for this case.",
+            )
+            restarted_again.confirm_pending_response(
+                subject_id=participant.subject_id,
+                final_summary="- Both components matter.",
             )
             self.assertEqual(repo.get_progress(participant.subject_id).item_index, 1)
             self.assertFalse((Path(directory) / "answers.csv").exists())
@@ -125,24 +171,39 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(saved["answers"][0]["component_answer"], "Both")
             self.assertEqual(saved["answers"][0]["case_number"], first_case)
 
-            repo.save_confirmed_response(
+            repo.save_pending_response(
                 subject_id=participant.subject_id,
                 case_number=second_case,
-                component_answer="Neither",
-                explanation_answer="Expected Utility explains this case.",
+                question_type="review",
+                provided_answer=PROVIDED_ANSWERS[second_case],
+                assessment_answer=ASSESSMENT_OPTIONS[1],
+                correction_answer="The supplied response needs a more precise explanation.",
+            )
+            repo.save_generated_summary(
+                subject_id=participant.subject_id,
+                case_number=second_case,
                 llm_summary="- Expected Utility explains this case.",
-                final_summary="- Expected Utility explains this case.",
                 llm_provider="demo",
                 llm_model="demo",
-                next_item_index=2,
-                completed=True,
+            )
+            repo.confirm_pending_response(
+                subject_id=participant.subject_id,
+                final_summary="- The supplied response needs a more precise explanation.",
             )
             with (Path(directory) / "answers.csv").open(encoding="utf-8-sig") as handle:
                 answer_rows = list(csv.DictReader(handle))
             self.assertEqual(len(answer_rows), 1)
             self.assertEqual(answer_rows[0]["SubjectId"], participant.subject_id)
-            self.assertEqual(answer_rows[0]["case_1_case_number"], str(first_case))
-            self.assertEqual(answer_rows[0]["case_2_case_number"], str(second_case))
+            self.assertEqual(answer_rows[0]["question_1_case_number"], str(first_case))
+            self.assertEqual(answer_rows[0]["question_1_question_type"], "original")
+            self.assertEqual(answer_rows[0]["question_2_case_number"], str(second_case))
+            self.assertEqual(answer_rows[0]["question_2_question_type"], "review")
+            self.assertEqual(
+                answer_rows[0]["question_2_assessment_answer"], ASSESSMENT_OPTIONS[1]
+            )
+            self.assertIn(
+                "more precise", answer_rows[0]["question_2_correction_answer"]
+            )
             self.assertNotIn("name", answer_rows[0])
             self.assertNotIn("email", answer_rows[0])
             self.assertTrue(repo.get_response_state(participant.subject_id)["csv_synced"])

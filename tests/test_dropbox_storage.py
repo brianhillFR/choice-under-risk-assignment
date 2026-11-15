@@ -21,6 +21,7 @@ from dropbox.files import (
 )
 
 from risk_app.dropbox_storage import DropboxRepository, StaleResponse
+from risk_app.content import ASSESSMENT_OPTIONS, PROVIDED_ANSWERS
 from risk_app.storage import StorageError
 from tools import dropbox_oauth
 
@@ -93,17 +94,33 @@ class DropboxRepositoryTests(unittest.TestCase):
     def _save_case(self, position: int, *, completed: bool) -> None:
         progress = self.repo.get_progress(self.participant.subject_id)
         case_number = progress.assigned_cases[position]
-        self.repo.save_confirmed_response(
+        if position == 0:
+            self.repo.save_pending_response(
+                subject_id=self.participant.subject_id,
+                case_number=case_number,
+                question_type="original",
+                component_answer="Both",
+                explanation_answer="Explanation for saved question 1.",
+            )
+        else:
+            self.repo.save_pending_response(
+                subject_id=self.participant.subject_id,
+                case_number=case_number,
+                question_type="review",
+                provided_answer=PROVIDED_ANSWERS[case_number],
+                assessment_answer=ASSESSMENT_OPTIONS[1],
+                correction_answer="Correction for saved question 2.",
+            )
+        self.repo.save_generated_summary(
             subject_id=self.participant.subject_id,
             case_number=case_number,
-            component_answer="Both" if position == 0 else "Neither",
-            explanation_answer=f"Explanation for saved case {position + 1}.",
             llm_summary=f"- Summary for saved case {position + 1}.",
-            final_summary=f"- Summary for saved case {position + 1}.",
             llm_provider="demo",
             llm_model="demo",
-            next_item_index=position + 1,
-            completed=completed,
+        )
+        self.repo.confirm_pending_response(
+            subject_id=self.participant.subject_id,
+            final_summary=f"- Summary for saved case {position + 1}.",
         )
 
     def test_registration_resume_and_completion_only_csv(self) -> None:
@@ -122,7 +139,29 @@ class DropboxRepositoryTests(unittest.TestCase):
         found = restarted.find_participant_by_email("student@hec.edu")
         self.assertEqual(found, self.participant)
 
-        self._save_case(0, completed=False)
+        progress = self.repo.get_progress(self.participant.subject_id)
+        first_case = progress.assigned_cases[0]
+        self.repo.save_pending_response(
+            subject_id=self.participant.subject_id,
+            case_number=first_case,
+            question_type="original",
+            component_answer="Both",
+            explanation_answer="This unconfirmed answer must survive a reconnect.",
+        )
+        resumed = DropboxRepository(self.client).get_progress(self.participant.subject_id)
+        self.assertEqual(resumed.stage, "summary_review")
+        self.assertIn("survive a reconnect", resumed.pending_answer["explanation_answer"])
+        self.repo.save_generated_summary(
+            subject_id=self.participant.subject_id,
+            case_number=first_case,
+            llm_summary="- This unconfirmed answer must survive a reconnect.",
+            llm_provider="demo",
+            llm_model="demo",
+        )
+        self.repo.confirm_pending_response(
+            subject_id=self.participant.subject_id,
+            final_summary="- This unconfirmed answer must survive a reconnect.",
+        )
         self.assertNotIn(
             "/choice_under_risk_assignment/answers.csv", self.client.files
         )

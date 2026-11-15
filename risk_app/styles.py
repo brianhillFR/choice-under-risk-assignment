@@ -53,6 +53,22 @@ QUALTRICS_CSS = """
         padding: 1rem 1.2rem .55rem;
         margin: .6rem 0 1rem;
     }
+    .provided-answer {
+        background: white;
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--hec-blue);
+        padding: 1rem 1.15rem;
+        margin: .75rem 0 1.25rem;
+        line-height: 1.55;
+    }
+    .provided-answer-label {
+        color: var(--hec-blue);
+        font-size: .82rem;
+        font-weight: 750;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+        margin-bottom: .45rem;
+    }
     .privacy-note { color: var(--muted); font-size: .83rem; margin-top: .5rem; }
     div[data-testid="stForm"] {
         background: white;

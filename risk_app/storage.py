@@ -17,7 +17,7 @@ from risk_app.workflow import assign_cases, normalize_email
 
 
 SUBJECT_FIELDS = ["SubjectId", "name", "email"]
-CASE_EXPORT_FIELDS = [
+LEGACY_CASE_EXPORT_FIELDS = [
     "case_number",
     "component_answer",
     "explanation_answer",
@@ -28,10 +28,32 @@ CASE_EXPORT_FIELDS = [
     "llm_model",
     "confirmed_at",
 ]
-ANSWER_FIELDS = ["SubjectId", "StartDate", "EndDate", "Finished"] + [
+LEGACY_ANSWER_FIELDS = ["SubjectId", "StartDate", "EndDate", "Finished"] + [
     f"case_{position}_{field}"
     for position in (1, 2)
-    for field in CASE_EXPORT_FIELDS
+    for field in LEGACY_CASE_EXPORT_FIELDS
+]
+QUESTION_EXPORT_FIELDS = [
+    "question_number",
+    "question_type",
+    "case_number",
+    "component_answer",
+    "explanation_answer",
+    "provided_answer",
+    "assessment_answer",
+    "correction_answer",
+    "llm_summary",
+    "final_summary",
+    "summary_modified",
+    "llm_provider",
+    "llm_model",
+    "submitted_at",
+    "confirmed_at",
+]
+ANSWER_FIELDS = ["SubjectId", "StartDate", "EndDate", "Finished"] + [
+    f"question_{position}_{field}"
+    for position in (1, 2)
+    for field in QUESTION_EXPORT_FIELDS
 ]
 RESPONSE_KEY_RE = re.compile(r"[0-9a-f]{64}")
 SUBJECT_ID_RE = re.compile(r"[0-9]{8}")
@@ -66,6 +88,8 @@ class Progress:
     assigned_cases: list[int]
     item_index: int
     completed: bool
+    stage: str
+    pending_answer: dict[str, object] | None
 
 
 class JsonCsvRepository:
@@ -229,7 +253,7 @@ class JsonCsvRepository:
         email = normalize_email(email)
         name = name.strip()
         if not name:
-            raise ValueError("Please enter your surname.")
+            raise ValueError("Please enter your full name.")
         with self._lock:
             rows = self._subject_rows()
             if any(normalize_email(row["email"]) == email for row in rows):
@@ -249,6 +273,7 @@ class JsonCsvRepository:
                 "completed_at": None,
                 "item_index": 0,
                 "answers": [],
+                "pending_answer": None,
                 "csv_synced": False,
             }
 
@@ -271,11 +296,171 @@ class JsonCsvRepository:
                 assigned_cases=[int(value) for value in assigned_cases],
                 item_index=int(state.get("item_index", 0)),
                 completed=state.get("stage") == "complete",
+                stage=str(state.get("stage", "question")),
+                pending_answer=deepcopy(state.get("pending_answer")),
             )
 
     @staticmethod
     def _same_answer(saved: dict[str, object], incoming: dict[str, object]) -> bool:
         return all(saved.get(key) == value for key, value in incoming.items())
+
+    @staticmethod
+    def _pending_payload(
+        *,
+        question_number: int,
+        question_type: str,
+        case_number: int,
+        component_answer: str = "",
+        explanation_answer: str = "",
+        provided_answer: str = "",
+        assessment_answer: str = "",
+        correction_answer: str = "",
+    ) -> dict[str, object]:
+        return {
+            "question_number": int(question_number),
+            "question_type": question_type,
+            "case_number": int(case_number),
+            "component_answer": component_answer.strip(),
+            "explanation_answer": explanation_answer.strip(),
+            "provided_answer": provided_answer.strip(),
+            "assessment_answer": assessment_answer.strip(),
+            "correction_answer": correction_answer.strip(),
+        }
+
+    @staticmethod
+    def _validate_pending_position(
+        state: dict[str, object], *, case_number: int, question_type: str
+    ) -> tuple[list[int], int]:
+        assigned = [int(value) for value in state["assignment"]["assigned_cases"]]
+        current_index = int(state.get("item_index", 0))
+        if state.get("stage") == "complete" or current_index >= len(assigned):
+            raise StorageError("This completed response cannot be changed.")
+        if assigned[current_index] != int(case_number):
+            raise StorageError("The submitted case does not match the saved assignment.")
+        expected_type = "original" if current_index == 0 else "review"
+        if question_type != expected_type:
+            raise StorageError("The submitted answer type does not match this question.")
+        return assigned, current_index
+
+    def save_pending_response(
+        self,
+        *,
+        subject_id: str,
+        case_number: int,
+        question_type: str,
+        component_answer: str = "",
+        explanation_answer: str = "",
+        provided_answer: str = "",
+        assessment_answer: str = "",
+        correction_answer: str = "",
+    ) -> None:
+        """Persist the student's full answer before any LLM request is made."""
+        with self._lock:
+            path, state = self._response_for_subject(subject_id)
+            _, current_index = self._validate_pending_position(
+                state, case_number=case_number, question_type=question_type
+            )
+            incoming = self._pending_payload(
+                question_number=current_index + 1,
+                question_type=question_type,
+                case_number=case_number,
+                component_answer=component_answer,
+                explanation_answer=explanation_answer,
+                provided_answer=provided_answer,
+                assessment_answer=assessment_answer,
+                correction_answer=correction_answer,
+            )
+            current = state.get("pending_answer")
+            if isinstance(current, dict) and self._same_answer(current, incoming):
+                return
+            now = utc_now()
+            updated = deepcopy(state)
+            updated["pending_answer"] = dict(
+                incoming,
+                submitted_at=now,
+                llm_summary="",
+                llm_provider="",
+                llm_model="",
+            )
+            updated["stage"] = "summary_review"
+            updated["updated_at"] = now
+            updated["revision"] = int(state.get("revision", 0)) + 1
+            self._write_json_atomic(path, updated)
+
+    def save_generated_summary(
+        self,
+        *,
+        subject_id: str,
+        case_number: int,
+        llm_summary: str,
+        llm_provider: str,
+        llm_model: str,
+    ) -> None:
+        """Persist the LLM result so a reconnect does not repeat the request."""
+        llm_summary = llm_summary.strip()
+        if not llm_summary:
+            raise ValueError("The generated summary cannot be empty.")
+        with self._lock:
+            path, state = self._response_for_subject(subject_id)
+            pending = state.get("pending_answer")
+            if state.get("stage") != "summary_review" or not isinstance(pending, dict):
+                raise StorageError("There is no submitted answer awaiting a summary.")
+            if int(pending.get("case_number", -1)) != int(case_number):
+                raise StorageError("The summary does not match the saved question.")
+            if pending.get("llm_summary"):
+                if (
+                    pending.get("llm_summary") == llm_summary
+                    and pending.get("llm_provider") == llm_provider
+                    and pending.get("llm_model") == llm_model
+                ):
+                    return
+                raise StorageError("A summary is already saved for this answer.")
+            updated = deepcopy(state)
+            updated_pending = updated["pending_answer"]
+            updated_pending["llm_summary"] = llm_summary
+            updated_pending["llm_provider"] = llm_provider
+            updated_pending["llm_model"] = llm_model
+            updated["updated_at"] = utc_now()
+            updated["revision"] = int(state.get("revision", 0)) + 1
+            self._write_json_atomic(path, updated)
+
+    def confirm_pending_response(
+        self, *, subject_id: str, final_summary: str
+    ) -> None:
+        final_summary = final_summary.strip()
+        if not final_summary:
+            raise ValueError("The confirmed summary cannot be empty.")
+        with self._lock:
+            path, state = self._response_for_subject(subject_id)
+            pending = state.get("pending_answer")
+            if state.get("stage") != "summary_review" or not isinstance(pending, dict):
+                raise StorageError("There is no submitted answer awaiting confirmation.")
+            llm_summary = str(pending.get("llm_summary", "")).strip()
+            if not llm_summary:
+                raise StorageError("The generated summary has not yet been saved.")
+            assigned = [int(value) for value in state["assignment"]["assigned_cases"]]
+            current_index = int(state.get("item_index", 0))
+            if int(pending.get("case_number", -1)) != assigned[current_index]:
+                raise StorageError("The saved answer does not match the current question.")
+            now = utc_now()
+            confirmed = deepcopy(pending)
+            confirmed["final_summary"] = final_summary
+            confirmed["summary_modified"] = final_summary != llm_summary
+            confirmed["confirmed_at"] = now
+            updated = deepcopy(state)
+            updated.setdefault("answers", []).append(confirmed)
+            updated["pending_answer"] = None
+            updated["item_index"] = current_index + 1
+            updated["updated_at"] = now
+            updated["revision"] = int(state.get("revision", 0)) + 1
+            completed = updated["item_index"] >= len(assigned)
+            updated["stage"] = "complete" if completed else "question"
+            if completed:
+                updated["completed_at"] = now
+                updated["csv_synced"] = False
+            self._write_json_atomic(path, updated)
+            if completed:
+                self._sync_completed_csv(path, updated)
 
     def save_confirmed_response(
         self,
@@ -291,57 +476,30 @@ class JsonCsvRepository:
         next_item_index: int,
         completed: bool,
     ) -> None:
-        with self._lock:
-            path, state = self._response_for_subject(subject_id)
-            assigned_cases = [int(value) for value in state["assignment"]["assigned_cases"]]
-            current_index = int(state.get("item_index", 0))
-            incoming = {
-                "case_number": int(case_number),
-                "component_answer": component_answer,
-                "explanation_answer": explanation_answer,
-                "llm_summary": llm_summary,
-                "final_summary": final_summary,
-                "summary_modified": final_summary.strip() != llm_summary.strip(),
-                "llm_provider": llm_provider,
-                "llm_model": llm_model,
-            }
-
-            if current_index >= len(assigned_cases):
-                saved = next(
-                    (answer for answer in state.get("answers", [])
-                     if int(answer.get("case_number", -1)) == int(case_number)),
-                    None,
-                )
-                if saved is None or not self._same_answer(saved, incoming):
-                    raise StorageError("This completed response cannot be changed.")
-                self._sync_completed_csv(path, state)
-                return
-            if assigned_cases[current_index] != int(case_number):
-                raise StorageError("The submitted case does not match the saved assignment.")
-            if next_item_index != current_index + 1:
-                raise StorageError("The submitted progress position is invalid.")
-            should_complete = next_item_index >= len(assigned_cases)
-            if completed != should_complete:
-                raise StorageError("The completion status does not match the saved assignment.")
-
-            updated = deepcopy(state)
-            confirmed = dict(incoming, confirmed_at=utc_now())
-            answers = updated.setdefault("answers", [])
-            if any(int(answer.get("case_number", -1)) == int(case_number) for answer in answers):
-                raise StorageError("A confirmed answer for this case is already saved.")
-            answers.append(confirmed)
-            updated["item_index"] = next_item_index
-            updated["updated_at"] = confirmed["confirmed_at"]
-            updated["revision"] = int(state.get("revision", 0)) + 1
-            if completed:
-                updated["stage"] = "complete"
-                updated["completed_at"] = confirmed["confirmed_at"]
-                updated["csv_synced"] = False
-
-            # Save the authoritative JSON before attempting the aggregate CSV.
-            self._write_json_atomic(path, updated)
-            if completed:
-                self._sync_completed_csv(path, updated)
+        # Compatibility wrapper for older callers. New UI code saves each of
+        # these three durability boundaries explicitly.
+        progress = self.get_progress(subject_id)
+        if next_item_index != progress.item_index + 1:
+            raise StorageError("The submitted progress position is invalid.")
+        if completed != (next_item_index >= len(progress.assigned_cases)):
+            raise StorageError("The completion status does not match the saved assignment.")
+        self.save_pending_response(
+            subject_id=subject_id,
+            case_number=case_number,
+            question_type="original" if progress.item_index == 0 else "review",
+            component_answer=component_answer,
+            explanation_answer=explanation_answer,
+        )
+        self.save_generated_summary(
+            subject_id=subject_id,
+            case_number=case_number,
+            llm_summary=llm_summary,
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+        )
+        self.confirm_pending_response(
+            subject_id=subject_id, final_summary=final_summary
+        )
 
     @staticmethod
     def _export_row(state: dict[str, object]) -> dict[str, object]:
@@ -354,12 +512,41 @@ class JsonCsvRepository:
         answers = state.get("answers", [])
         for position in (1, 2):
             answer = answers[position - 1] if len(answers) >= position else {}
-            for field in CASE_EXPORT_FIELDS:
+            for field in QUESTION_EXPORT_FIELDS:
                 value = answer.get(field, "")
                 if isinstance(value, bool):
                     value = str(value).lower()
-                row[f"case_{position}_{field}"] = value
+                row[f"question_{position}_{field}"] = value
         return row
+
+    @staticmethod
+    def _normalize_answer_rows(
+        header: list[str], rows: list[dict[str, str]]
+    ) -> list[dict[str, object]]:
+        """Preserve completed rows written by the previous two-case schema."""
+        if not header or header == ANSWER_FIELDS:
+            return rows
+        if header != LEGACY_ANSWER_FIELDS:
+            raise StorageError(
+                "answers.csv has an unexpected layout. The completed JSON remains saved."
+            )
+        migrated: list[dict[str, object]] = []
+        for old in rows:
+            new: dict[str, object] = {
+                key: old.get(key, "")
+                for key in ("SubjectId", "StartDate", "EndDate", "Finished")
+            }
+            for position in (1, 2):
+                new[f"question_{position}_question_number"] = position
+                new[f"question_{position}_question_type"] = "legacy_original"
+                for field in LEGACY_CASE_EXPORT_FIELDS:
+                    new[f"question_{position}_{field}"] = old.get(
+                        f"case_{position}_{field}", ""
+                    )
+                for field in ("provided_answer", "assessment_answer", "correction_answer", "submitted_at"):
+                    new[f"question_{position}_{field}"] = ""
+            migrated.append(new)
+        return migrated
 
     def _sync_completed_csv(self, path: Path, state: dict[str, object]) -> None:
         if state.get("stage") != "complete":
@@ -370,10 +557,7 @@ class JsonCsvRepository:
             raise StorageError("The completed response has no valid SubjectId.")
 
         header, rows = self._read_csv(self.answers_path)
-        if header and header != ANSWER_FIELDS:
-            raise StorageError(
-                "answers.csv has an unexpected layout. The completed JSON remains saved."
-            )
+        rows = self._normalize_answer_rows(header, rows)
         new_row = self._export_row(state)
         matches = [
             index for index, row in enumerate(rows)

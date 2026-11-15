@@ -240,6 +240,7 @@ class DropboxRepository:
             "completed_at": None,
             "item_index": 0,
             "answers": [],
+            "pending_answer": None,
             "csv_synced": False,
         }
 
@@ -300,7 +301,7 @@ class DropboxRepository:
         name = name.strip()
         email = normalize_email(email)
         if not name:
-            raise ValueError("Please enter your surname.")
+            raise ValueError("Please enter your full name.")
         identity, created = self._allocate_subject(name, email)
         self._ensure_registration(identity)
         if not created:
@@ -315,7 +316,132 @@ class DropboxRepository:
             assigned_cases=assigned,
             item_index=int(state.get("item_index", 0)),
             completed=state.get("stage") == "complete",
+            stage=str(state.get("stage", "question")),
+            pending_answer=deepcopy(state.get("pending_answer")),
         )
+
+    def save_pending_response(
+        self,
+        *,
+        subject_id: str,
+        case_number: int,
+        question_type: str,
+        component_answer: str = "",
+        explanation_answer: str = "",
+        provided_answer: str = "",
+        assessment_answer: str = "",
+        correction_answer: str = "",
+    ) -> None:
+        from dropbox.files import WriteMode
+
+        path, metadata, state = self._response_for_subject(subject_id)
+        _, current_index = JsonCsvRepository._validate_pending_position(
+            state, case_number=case_number, question_type=question_type
+        )
+        incoming = JsonCsvRepository._pending_payload(
+            question_number=current_index + 1,
+            question_type=question_type,
+            case_number=case_number,
+            component_answer=component_answer,
+            explanation_answer=explanation_answer,
+            provided_answer=provided_answer,
+            assessment_answer=assessment_answer,
+            correction_answer=correction_answer,
+        )
+        current = state.get("pending_answer")
+        if isinstance(current, dict) and JsonCsvRepository._same_answer(current, incoming):
+            return
+        now = utc_now()
+        updated = deepcopy(state)
+        updated["pending_answer"] = dict(
+            incoming,
+            submitted_at=now,
+            llm_summary="",
+            llm_provider="",
+            llm_model="",
+        )
+        updated["stage"] = "summary_review"
+        updated["updated_at"] = now
+        updated["revision"] = int(state.get("revision", 0)) + 1
+        self._upload_json(path, updated, WriteMode.update(metadata.rev))
+
+    def save_generated_summary(
+        self,
+        *,
+        subject_id: str,
+        case_number: int,
+        llm_summary: str,
+        llm_provider: str,
+        llm_model: str,
+    ) -> None:
+        from dropbox.files import WriteMode
+
+        llm_summary = llm_summary.strip()
+        if not llm_summary:
+            raise ValueError("The generated summary cannot be empty.")
+        path, metadata, state = self._response_for_subject(subject_id)
+        pending = state.get("pending_answer")
+        if state.get("stage") != "summary_review" or not isinstance(pending, dict):
+            raise StorageError("There is no submitted answer awaiting a summary.")
+        if int(pending.get("case_number", -1)) != int(case_number):
+            raise StorageError("The summary does not match the saved question.")
+        if pending.get("llm_summary"):
+            if (
+                pending.get("llm_summary") == llm_summary
+                and pending.get("llm_provider") == llm_provider
+                and pending.get("llm_model") == llm_model
+            ):
+                return
+            raise StorageError("A summary is already saved for this answer.")
+        updated = deepcopy(state)
+        updated_pending = updated["pending_answer"]
+        updated_pending["llm_summary"] = llm_summary
+        updated_pending["llm_provider"] = llm_provider
+        updated_pending["llm_model"] = llm_model
+        updated["updated_at"] = utc_now()
+        updated["revision"] = int(state.get("revision", 0)) + 1
+        self._upload_json(path, updated, WriteMode.update(metadata.rev))
+
+    def confirm_pending_response(
+        self, *, subject_id: str, final_summary: str
+    ) -> None:
+        from dropbox.files import WriteMode
+
+        final_summary = final_summary.strip()
+        if not final_summary:
+            raise ValueError("The confirmed summary cannot be empty.")
+        path, metadata, state = self._response_for_subject(subject_id)
+        pending = state.get("pending_answer")
+        if state.get("stage") != "summary_review" or not isinstance(pending, dict):
+            raise StorageError("There is no submitted answer awaiting confirmation.")
+        llm_summary = str(pending.get("llm_summary", "")).strip()
+        if not llm_summary:
+            raise StorageError("The generated summary has not yet been saved.")
+        assigned = [int(value) for value in state["assignment"]["assigned_cases"]]
+        current_index = int(state.get("item_index", 0))
+        if int(pending.get("case_number", -1)) != assigned[current_index]:
+            raise StorageError("The saved answer does not match the current question.")
+        now = utc_now()
+        confirmed = deepcopy(pending)
+        confirmed["final_summary"] = final_summary
+        confirmed["summary_modified"] = final_summary != llm_summary
+        confirmed["confirmed_at"] = now
+        updated = deepcopy(state)
+        updated.setdefault("answers", []).append(confirmed)
+        updated["pending_answer"] = None
+        updated["item_index"] = current_index + 1
+        updated["updated_at"] = now
+        updated["revision"] = int(state.get("revision", 0)) + 1
+        completed = updated["item_index"] >= len(assigned)
+        updated["stage"] = "complete" if completed else "question"
+        if completed:
+            updated["completed_at"] = now
+            updated["csv_synced"] = False
+        response_metadata = self._upload_json(
+            path, updated, WriteMode.update(metadata.rev)
+        )
+        if completed:
+            self._sync_completed_csv(path, response_metadata, updated)
 
     @staticmethod
     def _incoming_answer(
@@ -352,59 +478,28 @@ class DropboxRepository:
         next_item_index: int,
         completed: bool,
     ) -> None:
-        from dropbox.files import WriteMode
-
-        path, metadata, state = self._response_for_subject(subject_id)
-        assigned = [int(value) for value in state["assignment"]["assigned_cases"]]
-        current_index = int(state.get("item_index", 0))
-        incoming = self._incoming_answer(
-            case_number,
-            component_answer,
-            explanation_answer,
-            llm_summary,
-            final_summary,
-            llm_provider,
-            llm_model,
-        )
-        if current_index >= len(assigned):
-            saved = next(
-                (
-                    answer
-                    for answer in state.get("answers", [])
-                    if int(answer.get("case_number", -1)) == int(case_number)
-                ),
-                None,
-            )
-            if saved is None or not JsonCsvRepository._same_answer(saved, incoming):
-                raise StorageError("This completed response cannot be changed.")
-            self._sync_completed_csv(path, metadata, state)
-            return
-        if assigned[current_index] != int(case_number):
-            raise StorageError("The submitted case does not match the saved assignment.")
-        if next_item_index != current_index + 1:
+        progress = self.get_progress(subject_id)
+        if next_item_index != progress.item_index + 1:
             raise StorageError("The submitted progress position is invalid.")
-        should_complete = next_item_index >= len(assigned)
-        if completed != should_complete:
+        if completed != (next_item_index >= len(progress.assigned_cases)):
             raise StorageError("The completion status does not match the saved assignment.")
-
-        updated = deepcopy(state)
-        confirmed = dict(incoming, confirmed_at=utc_now())
-        answers = updated.setdefault("answers", [])
-        if any(int(answer.get("case_number", -1)) == int(case_number) for answer in answers):
-            raise StorageError("A confirmed answer for this case is already saved.")
-        answers.append(confirmed)
-        updated["item_index"] = next_item_index
-        updated["updated_at"] = confirmed["confirmed_at"]
-        updated["revision"] = int(state.get("revision", 0)) + 1
-        if completed:
-            updated["stage"] = "complete"
-            updated["completed_at"] = confirmed["confirmed_at"]
-            updated["csv_synced"] = False
-        response_metadata = self._upload_json(
-            path, updated, WriteMode.update(metadata.rev)
+        self.save_pending_response(
+            subject_id=subject_id,
+            case_number=case_number,
+            question_type="original" if progress.item_index == 0 else "review",
+            component_answer=component_answer,
+            explanation_answer=explanation_answer,
         )
-        if completed:
-            self._sync_completed_csv(path, response_metadata, updated)
+        self.save_generated_summary(
+            subject_id=subject_id,
+            case_number=case_number,
+            llm_summary=llm_summary,
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+        )
+        self.confirm_pending_response(
+            subject_id=subject_id, final_summary=final_summary
+        )
 
     def _sync_completed_csv(self, path: str, response_metadata, state: dict[str, object]):
         from dropbox.files import WriteMode
@@ -416,10 +511,7 @@ class DropboxRepository:
         new_row = JsonCsvRepository._export_row(state)
         for _ in range(5):
             metadata, header, rows = self._read_csv(self.answers_path)
-            if header and header != ANSWER_FIELDS:
-                raise StorageError(
-                    "answers.csv has an unexpected layout. The completed JSON remains saved."
-                )
+            rows = JsonCsvRepository._normalize_answer_rows(header, rows)
             matches = [
                 index
                 for index, row in enumerate(rows)

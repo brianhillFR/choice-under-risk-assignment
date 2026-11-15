@@ -29,6 +29,17 @@ actually present in the explanation. Use 1-6
 bullets. Each bullet must begin with '- '"""
 
 
+def llm_setting(name: str, default: str) -> str:
+    """Read model settings from the environment or Streamlit secrets."""
+    if name in os.environ:
+        return os.environ[name]
+    try:
+        import streamlit as st
+
+        return str(st.secrets.get(name, default))
+    except (ImportError, FileNotFoundError, KeyError, AttributeError):
+        return default
+
 
 def normalize_bullets(text: str) -> str:
     lines = []
@@ -67,13 +78,13 @@ class SummaryResult:
 
 class SummaryClient:
     def __init__(self, mode: str | None = None, model: str | None = None) -> None:
-        self.mode = (mode or os.getenv("LLM_MODE", "demo")).strip().casefold()
-        self.model = (model or os.getenv("OPENAI_MODEL", "gpt-4.1-mini")).strip()
-        self.api_key_secret = os.getenv("OPENAI_API_KEY_SECRET", "KEY_OPENAI").strip()
-        self.max_output_tokens = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "800"))
-        self.timeout_seconds = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "45"))
+        self.mode = (mode or llm_setting("LLM_MODE", "demo")).strip().casefold()
+        self.model = (model or llm_setting("OPENAI_MODEL", "gpt-4.1-mini")).strip()
+        self.api_key_secret = llm_setting("OPENAI_API_KEY_SECRET", "KEY_OPENAI").strip()
+        self.max_output_tokens = int(llm_setting("OPENAI_MAX_OUTPUT_TOKENS", "800"))
+        self.timeout_seconds = float(llm_setting("OPENAI_TIMEOUT_SECONDS", "45"))
         self.generation_lease_seconds = int(
-            os.getenv("OPENAI_GENERATION_LEASE_SECONDS", "120")
+            llm_setting("OPENAI_GENERATION_LEASE_SECONDS", "120")
         )
 
     def _api_key(self) -> str:
