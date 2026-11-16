@@ -36,6 +36,22 @@ The answer CSV contains `SubjectId` but never name or e-mail. Completion writes 
 response JSON first, merges the row into `answers.csv`, then marks the JSON as synced,
 so a failed final merge can be retried without duplicating a row.
 
+## Keep the deployed app awake
+
+The **Keep Streamlit awake** GitHub Action visits the public app every six hours
+through Friday 20 November 2026. On Saturday 21 November it visits at 01:17,
+07:17 and finally 12:47 CET, then stops at the configured deadline of 13:00 CET
+(12:00 UTC). It clicks **Yes, get this app back up!** only when Streamlit shows
+that control and verifies the assignment's e-mail field and **Next** button. It
+never fills or submits the form, enters survey data, or calls the LLM.
+
+The workflow is `.github/workflows/streamlit-keepalive.yml`; its browser check is
+`scripts/wake_streamlit.py`. It assumes the public entry URL is
+https://choice-under-risk-assignment.streamlit.app/. If the deployed slug differs,
+set the repository Actions variable `STREAMLIT_APP_URL` to the correct root
+`https://NAME.streamlit.app/` URL. The action can also be tested immediately from
+**Actions → Keep Streamlit awake → Run workflow**.
+
 ## Deployment
 
 For local development, leave `STORAGE_BACKEND = "local"`. For persistent Streamlit
