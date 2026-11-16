@@ -23,6 +23,10 @@ For each case, you will receive:
 - The case shown to the student.
 - The full two-part question shown to the student.
 - The student's full two-part answer, including their selected component and explanation.
+- In the case where the question asks the student to evaluate and correct an existing answer, the answer the student is commenting on.
+
+If the student has not provided a substantive answer, return a single bullet point stating that no substantive answer was supplied.
+If the student accepts the provided answer as correct without comment, return a single bullet point stating that the student accepted the provided answer as correct without comment.
 
 Return only a concise Markdown bullet list of all and only the arguments and considerations
 actually present in the explanation. Use 1-6
