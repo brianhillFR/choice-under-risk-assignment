@@ -16,6 +16,9 @@ from risk_app.content import (
     EXPLANATION_QUESTION,
     FULL_CASE_QUESTION,
     PROVIDED_ANSWERS,
+    REVIEW_CASE_INTRO,
+    REVIEW_QUESTIONS_INTRO,
+    REVIEW_RESPONSE_INTRO,
     build_case_items,
     format_full_review_answer,
     format_full_student_answer,
@@ -95,6 +98,10 @@ class SummaryTests(unittest.TestCase):
         self.assertIn(ASSESSMENT_QUESTION, prompt)
         self.assertIn(CORRECTION_QUESTION, prompt)
         self.assertIn(PROVIDED_ANSWERS[2], prompt)
+        self.assertIn(REVIEW_CASE_INTRO.format(case_number=2), prompt)
+        self.assertIn(REVIEW_QUESTIONS_INTRO, prompt)
+        self.assertIn(REVIEW_RESPONSE_INTRO, prompt)
+        self.assertLess(prompt.index(REVIEW_QUESTIONS_INTRO), prompt.index(PROVIDED_ANSWERS[2]))
         self.assertIn(f"Assessment: {ASSESSMENT_OPTIONS[1]}", prompt)
         self.assertIn("Explanation and correction: The response should replace", prompt)
 

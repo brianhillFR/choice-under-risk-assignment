@@ -95,6 +95,13 @@ CORRECTION_QUESTION = (
     "corrected or changed to obtain a perfect response."
 )
 
+REVIEW_CASE_INTRO = "Now consider case {case_number}. As a reminder, here is the case."
+REVIEW_QUESTIONS_INTRO = "The questions are as before:"
+REVIEW_RESPONSE_INTRO = (
+    "The following response to these questions has been provided. Below, you "
+    "will be asked some questions about this response."
+)
+
 PROVIDED_ANSWERS: dict[int, str] = {
     1: (
         "i. Probability weighting function.\n\n"
@@ -210,8 +217,10 @@ PROVIDED_ANSWERS: dict[int, str] = {
 
 def full_review_question(case_number: int) -> str:
     return (
-        f"{FULL_CASE_QUESTION}\n\n"
-        "The following response to the questions has been provided:\n\n"
+        f"{REVIEW_CASE_INTRO.format(case_number=case_number)}\n\n"
+        f"{CASES[case_number]}\n\n"
+        f"{REVIEW_QUESTIONS_INTRO}\n\n{FULL_CASE_QUESTION}\n\n"
+        f"{REVIEW_RESPONSE_INTRO}\n\n"
         f"{PROVIDED_ANSWERS[case_number]}\n\n"
         f"{ASSESSMENT_QUESTION}\n\n{CORRECTION_QUESTION}"
     )

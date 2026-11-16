@@ -18,6 +18,9 @@ from risk_app.content import (
     FULL_CASE_QUESTION,
     NAME_QUESTION,
     PROVIDED_ANSWERS,
+    REVIEW_CASE_INTRO,
+    REVIEW_QUESTIONS_INTRO,
+    REVIEW_RESPONSE_INTRO,
     SUMMARY_REVIEW_TEXT,
     build_case_items,
     format_full_student_answer,
@@ -202,13 +205,13 @@ def render_original_question(item) -> None:
 
 
 def render_correction_question(item) -> None:
-    st.markdown(f"**Now consider case {item.case_number}. The questions are as before:**")
-    render_case(item.case_number)
-    st.markdown(FULL_CASE_QUESTION)
     st.markdown(
-        "The following response to the questions has been provided. You will be "
-        "asked some questions about this response."
+        f"**{REVIEW_CASE_INTRO.format(case_number=item.case_number)}**"
     )
+    render_case(item.case_number)
+    st.markdown(f"**{REVIEW_QUESTIONS_INTRO}**")
+    st.markdown(FULL_CASE_QUESTION)
+    st.markdown(REVIEW_RESPONSE_INTRO)
     render_provided_answer(item.case_number)
     with st.form(f"question_form_{item.question_number}"):
         assessment_answer = st.radio(

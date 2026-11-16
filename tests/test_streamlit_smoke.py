@@ -82,6 +82,13 @@ class StreamlitSmokeTest(unittest.TestCase):
                     "There is something along the right lines in the response, but requires some addition or modification",
                     "Wrong",
                 ])
+                question_two_text = "\n".join(item.value for item in app.markdown)
+                self.assertIn("As a reminder, here is the case.", question_two_text)
+                self.assertIn("The questions are as before:", question_two_text)
+                self.assertIn(
+                    "The following response to these questions has been provided. Below, you will be asked some questions about this response.",
+                    question_two_text,
+                )
                 self.assertIn("what needs to be added, corrected or changed", app.text_area[0].label)
                 app.radio[0].set_value(
                     "There is something along the right lines in the response, but requires some addition or modification"
