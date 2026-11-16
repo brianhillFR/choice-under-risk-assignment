@@ -7,6 +7,12 @@ import time
 from urllib.parse import urlsplit
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    # `python scripts/wake_streamlit.py` otherwise exposes only scripts/ as the
+    # import root on GitHub's runner, making risk_app unavailable.
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
 DEFAULT_URL = "https://choice-under-risk-assignment.streamlit.app/"
 WAKE_BUTTON = re.compile(r"^Yes,?\s*get this app back up!?$", re.IGNORECASE)
 ACCESS_HEADING = re.compile(
@@ -120,9 +126,16 @@ def main():
             )
 
 
+def cli():
+    if sys.argv[1:] == ["--check-entry-labels"]:
+        print("\t".join(entry_labels()))
+        return
+    main()
+
+
 if __name__ == "__main__":
     try:
-        main()
+        cli()
     except Exception as error:
         # Do not log page bodies, participant data or configuration secrets.
         detail = (

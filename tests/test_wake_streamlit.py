@@ -1,5 +1,8 @@
 """Check keepalive browser decisions without installing or opening a browser."""
+from pathlib import Path
 import re
+import subprocess
+import sys
 import unittest
 
 from scripts.wake_streamlit import app_url, entry_labels, wait_for_entry
@@ -55,6 +58,25 @@ class Page:
 
 
 class WakeStreamlitTests(unittest.TestCase):
+    def test_github_script_path_can_import_project_content(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(repository_root / "scripts" / "wake_streamlit.py"),
+                "--check-entry-labels",
+            ],
+            cwd=repository_root,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(), "Please enter your HEC e-mail address\tNext"
+        )
+
     def test_awake_app_requires_no_clicks(self):
         clock, frame = Clock(), Frame(ready=True)
         self.assertFalse(
