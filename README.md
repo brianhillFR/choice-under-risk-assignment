@@ -47,7 +47,7 @@ never fills or submits the form, enters survey data, or calls the LLM.
 
 The workflow is `.github/workflows/streamlit-keepalive.yml`; its browser check is
 `scripts/wake_streamlit.py`. It assumes the public entry URL is
-https://choice-under-risk-assignment.streamlit.app/. If the deployed slug differs,
+https://be-choice-under-risk-assignment.streamlit.app/. If the deployed slug differs,
 set the repository Actions variable `STREAMLIT_APP_URL` to the correct root
 `https://NAME.streamlit.app/` URL. The action can also be tested immediately from
 **Actions → Keep Streamlit awake → Run workflow**.

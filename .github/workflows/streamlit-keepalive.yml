@@ -52,5 +52,5 @@ jobs:
       - name: Wake the app and verify the entry screen
         if: steps.active_window.outputs.active == 'true'
         env:
-          STREAMLIT_APP_URL: ${{ vars.STREAMLIT_APP_URL || 'https://choice-under-risk-assignment.streamlit.app/' }}
+          STREAMLIT_APP_URL: ${{ vars.STREAMLIT_APP_URL || 'https://be-choice-under-risk-assignment.streamlit.app/' }}
         run: python scripts/wake_streamlit.py

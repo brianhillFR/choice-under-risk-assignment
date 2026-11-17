@@ -104,7 +104,7 @@ class WakeStreamlitTests(unittest.TestCase):
             )
 
     def test_participant_links_and_other_sites_are_rejected(self):
-        valid = "https://choice-under-risk-assignment.streamlit.app/"
+        valid = "https://be-choice-under-risk-assignment.streamlit.app/"
         self.assertEqual(app_url(valid), valid)
         invalid = (
             valid + "?response=private-token",

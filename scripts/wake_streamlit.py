@@ -13,7 +13,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     # import root on GitHub's runner, making risk_app unavailable.
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-DEFAULT_URL = "https://choice-under-risk-assignment.streamlit.app/"
+DEFAULT_URL = "https://be-choice-under-risk-assignment.streamlit.app/"
 WAKE_BUTTON = re.compile(r"^Yes,?\s*get this app back up!?$", re.IGNORECASE)
 ACCESS_HEADING = re.compile(
     r"You do not have access to this app or it does not exist", re.IGNORECASE
